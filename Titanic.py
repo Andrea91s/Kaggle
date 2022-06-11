@@ -16,11 +16,14 @@ Created on Tue May 17 19:12:30 2022
 6) CHARTING: plotting
 """
 
+
+
 import pandas as pd
 import numpy as np
 import random as rnd
 import seaborn as sns
 import matplotlib.pyplot as plt
+
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC, LinearSVC
@@ -32,12 +35,15 @@ from sklearn.linear_model import SGDClassifier
 from sklearn.tree import DecisionTreeClassifier
 
 plt.close('all')
+%reset -f
+
+##################  1 CLASSIFYING ################
 
 
 #reading train and test dataframe
 train_df = pd.read_csv('train.csv')
 test_df = pd.read_csv('test.csv')
-df = [train_df, test_df]
+
 
 #analyzing data
 #1) which are the feature of the dataset?
@@ -67,6 +73,10 @@ print(train_df[['SibSp', 'Survived']].groupby(['SibSp'], as_index=False).mean().
 #showing number of survived as a function of parch(number of parents or children on board)
 print(train_df[['Parch', 'Survived']].groupby(['Parch'], as_index=False).mean().sort_values(by='Survived', ascending=False))
 
+
+##################  2 CORRELATING ################
+
+
 #select only numerical values and plotting theirs distribution
 
 # train_df_num=train_df.select_dtypes({'number'})
@@ -94,7 +104,7 @@ g.add_legend()
 g = sns.FacetGrid(train_df, row='Embarked', col='Survived')
 g.map(sns.barplot, 'Sex', 'Fare')
 g.add_legend()
-
+plt.close('all')
 #so now I have understood several things on my data:
 # more females survived than man
 #those in first class had a better chance to survive compare with those in the thrid class
@@ -102,10 +112,78 @@ g.add_legend()
 #finally people that paid higher fares had a better chance to survive
 #people with fewer siblings or a spose hada better chance to survive compare to someone with a lot of children or parents
 
-#now it is time to clean up data.
+#now it is time to clean up data. 
+#since there are many NA in the cabin and each ticket is quite different from others and therefore not giving any interesting information I have to drop them
+train_df= train_df.drop(['Ticket', 'Cabin'], axis=1)
+test_df= test_df.drop(['Ticket', 'Cabin'], axis=1)
+df = [train_df, test_df]
+
+##################  3 CONVERTING ################
+
+#one important thing to notice is that names contain a title (mr, mrs, etc..) this might be helpful
+
+title_mapping = {'Mr':1, 'Miss':2, 'Mrs':3, 'Master':4, 'Rare':5}
 
 
+for i in range(0,2):
+    df[i]['Title']=df[i].Name.str.extract(' ([A-Za-z]+)\.', expand=False)
+    #convert the just found title in new categories
+    df[i]['Title']=df[i]['Title'].replace(['Lady', 'Countess', 'Capt', 'Col','Don', 'Dr', 'Major', 'Rev', 'Sir', 'Jonkheer', 'Dona'], 'Rare')
+    df[i]['Title']=df[i]['Title'].replace('Mlle','Miss')
+    df[i]['Title']=df[i]['Title'].replace('Ms','Miss')
+    df[i]['Title']=df[i]['Title'].replace('Mme','Mrs')
+    #convert title into numbers
+    df[i]['Title']=df[i]['Title'].map(title_mapping)
+    #with the new feature I can remove the name
+df[0]=df[0].drop(['Name', 'PassengerId'],axis=1)
+df[1]=df[1].drop(['Name'],axis=1)
 
 
+#now I should convert categorical features in numbers
+sex_mapping = {'female':1, 'male':0}
+for i in range(0,2):
+    df[i]['Sex']=df[i]['Sex'].map(sex_mapping)
 
 
+##################  4 REPLACING ################
+
+#it looks like that a good way to replace missing data is to find correlation with other variables and try to replace them according to this
+#in this specific case there is a correlation between age, gender and Pclass so we can exploit this to find the missing ages.
+
+g = sns.FacetGrid(train_df, row='Pclass', col='Sex')
+g.map(plt.hist, 'Age', bins=20)
+g.add_legend()
+
+
+guess_ages = np.zeros((2,3))
+for i in range(0,2):
+    for j in range(0,2):
+        for k in range(0,3):
+            guess_df=df[i][(df[i]['Sex']==j) & (df[i]['Pclass']==k+1)]['Age'].dropna()
+            age_guess=guess_df.median()
+            guess_ages[j,k] =int(age_guess/0.5 +0.5) *0.5
+    for j in range(0,2):
+        for k in range(0,3):      
+            df[i].loc[df[i].Age.isnull() & (df[i].Sex == j) & (df[i].Pclass == k+1), 'Age'] = guess_ages[j,k]
+
+
+#now instead of using the actual ages, I will include them into tiers
+
+for i in range(0,2):
+    df[i].loc[df[i]['Age'] <= 16, 'Age'] = 0
+    df[i].loc[(df[i]['Age'] > 16) & (df[i]['Age'] <= 32), 'Age'] = 1
+    df[i].loc[(df[i]['Age'] > 32) & (df[i]['Age'] <= 48), 'Age'] = 2
+    df[i].loc[(df[i]['Age'] > 48) & (df[i]['Age'] <= 64), 'Age'] = 3 
+    df[i].loc[df[i]['Age'] > 64, 'Age'] = 4                                      
+                                
+# then I want to combine Prch and Sibsp into a family column
+for i in range(0,2):
+    df[i]['FamilySize'] = df[i]['SibSp'] + df[i]['Parch'] + 1
+    df[i]['Alone'] = 0
+    df[i].loc[df[i]['FamilySize']==1, 'Alone']=1
+
+   
+
+train_df=df[0].drop(['SibSp', 'Parch', 'FamilySize'],axis=1)
+test_df=df[1].drop(['SibSp', 'Parch', 'FamilySize'],axis=1)
+df = [train_df, test_df]

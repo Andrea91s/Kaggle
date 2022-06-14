@@ -14,6 +14,7 @@ Created on Tue May 17 19:12:30 2022
 4) COMPLETING: dealing with missing data
 5) CORRECTING:outliers detection and unbalanced data which might require an oversampling
 6) CHARTING: plotting
+7) MODELLING and PREDICTING
 """
 
 
@@ -33,7 +34,7 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import Perceptron
 from sklearn.linear_model import SGDClassifier
 from sklearn.tree import DecisionTreeClassifier
-
+from sklearn.preprocessing import StandardScaler
 plt.close('all')
 %reset -f
 
@@ -150,9 +151,9 @@ for i in range(0,2):
 #it looks like that a good way to replace missing data is to find correlation with other variables and try to replace them according to this
 #in this specific case there is a correlation between age, gender and Pclass so we can exploit this to find the missing ages.
 
-g = sns.FacetGrid(train_df, row='Pclass', col='Sex')
-g.map(plt.hist, 'Age', bins=20)
-g.add_legend()
+# g = sns.FacetGrid(train_df, row='Pclass', col='Sex')
+# g.map(plt.hist, 'Age', bins=20)
+# g.add_legend()
 
 
 guess_ages = np.zeros((2,3))
@@ -187,3 +188,47 @@ for i in range(0,2):
 train_df=df[0].drop(['SibSp', 'Parch', 'FamilySize'],axis=1)
 test_df=df[1].drop(['SibSp', 'Parch', 'FamilySize'],axis=1)
 df = [train_df, test_df]
+
+emb_mapping = {'S':0, 'C':1, 'Q':2}
+
+#embarked has only two missing data so I take the most common one and I substitute it to those missing
+freq=train_df.Embarked.dropna().mode()[0]
+for i in range(0,2):
+    df[i]['Embarked'] = df[i]['Embarked'].fillna(freq)
+#then I convert S C and Q into numbers
+    df[i]['Embarked']=df[i]['Embarked'].map(emb_mapping).astype(int)
+    
+#same analysis for the fare
+df[1]['Fare'].fillna(df[1]['Fare'].dropna().median(), inplace=True)
+df[1]['FareTier'] = pd.qcut(df[1]['Fare'],4)
+
+for i in range(0,2):
+    df[i].loc[df[i]['Fare']<= 7.91, 'Fare'] = 0
+    df[i].loc[(df[i]['Fare']> 7.91) & (df[i]['Fare']<=14.454), 'Fare'] = 1
+    df[i].loc[(df[i]['Fare']> 14.454) & (df[i]['Fare']<=31), 'Fare'] = 2
+    df[i].loc[df[i]['Fare']> 31, 'Fare'] = 3
+df[1]=df[1].drop(['FareTier'],axis=1)   
+
+train_df=df[0]
+test_df=df[1]
+
+##################  7 MODELLING ################
+
+x_train = train_df.drop('Survived', axis=1)
+y_train = train_df['Survived']
+x_test = test_df.drop('PassengerId', axis=1)
+
+#try to normalize value
+scaler=StandardScaler()
+scaler.fit(train_df)
+new = pd.DataFrame(scaler.transform(train_df), columns=train_df.columns)
+x_train = new.drop('Survived', axis=1)
+y_train = new['Survived']
+
+#logistic regression
+
+logreg=LogisticRegression()
+logreg.fit(x_train, y_train)
+y_pred=logreg.predict(x_test)
+print('Logistic regression: '+ str(round(logreg.score(x_train, y_train)*100,2))+ ' %')
+

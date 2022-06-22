@@ -35,6 +35,8 @@ from sklearn.linear_model import Perceptron
 from sklearn.linear_model import SGDClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import RandomizedSearchCV
+
 plt.close('all')
 %reset -f
 
@@ -222,13 +224,112 @@ x_test = test_df.drop('PassengerId', axis=1)
 scaler=StandardScaler()
 scaler.fit(train_df)
 new = pd.DataFrame(scaler.transform(train_df), columns=train_df.columns)
-x_train = new.drop('Survived', axis=1)
-y_train = new['Survived']
+#x_train = new.drop('Survived', axis=1)
 
-#logistic regression
+# #logistic regression
 
 logreg=LogisticRegression()
 logreg.fit(x_train, y_train)
 y_pred=logreg.predict(x_test)
 print('Logistic regression: '+ str(round(logreg.score(x_train, y_train)*100,2))+ ' %')
 
+# support vector machines
+
+svc =SVC()
+svc.fit(x_train, y_train)
+y_pred = svc.predict(x_test)
+print('Support Vector Machine: '+ str(round(svc.score(x_train, y_train)*100,2))+ ' %')
+
+# KNN
+
+knn=KNeighborsClassifier(n_neighbors=2)
+knn.fit(x_train, y_train)
+y_pred=knn.predict(x_test)
+print('KNN: '+ str(round(knn.score(x_train, y_train)*100,2))+ ' %')
+
+# Naive Bayes
+
+gaussian=GaussianNB()
+gaussian.fit(x_train, y_train)
+y_pred=gaussian.predict(x_test)
+print('Naive Bayes: '+ str(round(gaussian.score(x_train, y_train)*100,2))+ ' %')
+
+#Perceptron
+
+perceptron = Perceptron()
+perceptron.fit(x_train, y_train)
+y_pred=perceptron.predict(x_test)
+print('Perceptron: '+ str(round(perceptron.score(x_train, y_train)*100,2))+ ' %')
+
+# linear support vector machines
+
+linear_svc = LinearSVC()
+linear_svc.fit(x_train, y_train)
+y_pred = linear_svc.predict(x_test)
+print('Linear Support Vector Machine: '+ str(round(linear_svc.score(x_train, y_train)*100,2))+ ' %')
+
+# Stochastic Gradient Descent
+
+sgd = SGDClassifier()
+sgd.fit(x_train, y_train)
+y_pred = sgd.predict(x_test)
+print('Stochastic Gradient Descent: '+ str(round(sgd.score(x_train, y_train)*100,2))+ ' %')
+
+# Regression tree
+
+tree = DecisionTreeClassifier()
+tree.fit(x_train, y_train)
+y_pred = tree.predict(x_test)
+print('Decision tree: '+ str(round(tree.score(x_train, y_train)*100,2))+ ' %')
+
+
+# Random forest
+n_tree= (10,50,150,200)
+for n in n_tree:    
+    trees = RandomForestClassifier(n_estimators=n)
+    trees.fit(x_train, y_train)
+    y_pred = trees.predict(x_test)
+    print('Random forest with '+str(n)+' trees: '+ str(round(trees.score(x_train, y_train)*100,2))+ ' %')
+
+
+#since Random forest looks to be the best I will save the results
+
+submission =pd.DataFrame({"PassengerId": test_df["PassengerId"], "Survived": y_pred})
+submission.to_csv('submission_andrea.csv', index=False)
+
+#since I have found that the random forest is the best now I want to tune it.
+#it looks like there are several parameters, so the best thing to do is to create a random grid with different combination of them
+
+n_estimators = [int(x) for x in np.linspace(start = 100, stop = 2000, num = 10)]
+# Number of features to consider at every split
+max_features = ['auto', 'sqrt']
+# Maximum number of levels in tree
+max_depth = [int(x) for x in np.linspace(10, 110, num = 11)]
+max_depth.append(None)
+# Minimum number of samples required to split a node
+min_samples_split = [2, 5, 10, 15]
+# Minimum number of samples required at each leaf node
+min_samples_leaf = [1, 2, 4, 6]
+# Method of selecting samples for training each tree
+bootstrap = [True, False]# Create the random grid
+random_grid = {'n_estimators': n_estimators,
+               'max_features': max_features,
+               'max_depth': max_depth,
+               'min_samples_split': min_samples_split,
+               'min_samples_leaf': min_samples_leaf,
+               'bootstrap': bootstrap}
+print(random_grid)
+
+
+trees = RandomForestClassifier()
+# Random search of parameters, using 5 fold cross validation, 
+# search across 100 different combinations and use all available cores
+trees_random = RandomizedSearchCV(estimator = trees, param_distributions = random_grid, n_iter = 100, cv = 5, verbose=5, random_state=42, n_jobs = -1)# Fit the random search model
+trees_random.fit(x_train, y_train)
+trees_random.best_params_
+#using only the best one
+y_pred = trees_random.best_estimator_.predict(x_test)
+print('Decision tree: '+ str(round(trees_random.best_estimator_.score(x_train, y_train)*100,2))+ ' %')
+
+submission =pd.DataFrame({"PassengerId": test_df["PassengerId"], "Survived": y_pred})
+submission.to_csv('submission_andrea.csv', index=False)

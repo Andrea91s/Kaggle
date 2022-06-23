@@ -28,14 +28,22 @@ import matplotlib.pyplot as plt
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC, LinearSVC
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import Perceptron
 from sklearn.linear_model import SGDClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import RandomizedSearchCV
+from sklearn.model_selection import GridSearchCV, cross_val_score, StratifiedKFold, learning_curve
+import xgboost as xgb
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from sklearn.metrics import confusion_matrix
+from keras.callbacks import ModelCheckpoint
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier, ExtraTreesClassifier, VotingClassifier
+kfold = StratifiedKFold(n_splits=10)
+
+
 
 plt.close('all')
 %reset -f
@@ -214,6 +222,9 @@ df[1]=df[1].drop(['FareTier'],axis=1)
 train_df=df[0]
 test_df=df[1]
 
+#to show correlation matrix
+#sns.heatmap(train_df.corr(), annot=True)
+
 ##################  7 MODELLING ################
 
 x_train = train_df.drop('Survived', axis=1)
@@ -224,112 +235,199 @@ x_test = test_df.drop('PassengerId', axis=1)
 scaler=StandardScaler()
 scaler.fit(train_df)
 new = pd.DataFrame(scaler.transform(train_df), columns=train_df.columns)
-#x_train = new.drop('Survived', axis=1)
+x_train = new.drop('Survived', axis=1)
 
-# #logistic regression
 
-logreg=LogisticRegression()
-logreg.fit(x_train, y_train)
-y_pred=logreg.predict(x_test)
-print('Logistic regression: '+ str(round(logreg.score(x_train, y_train)*100,2))+ ' %')
+scaler.fit(test_df)
+new = pd.DataFrame(scaler.transform(test_df), columns=test_df.columns)
+x_test = new.drop('PassengerId', axis=1)
 
-# support vector machines
+### SVC classifier
+SVMC = SVC(probability=True)
+svc_param_grid = {'kernel': ['rbf'], 
+                  'gamma': [ 0.001, 0.01, 0.1, 1],
+                  'C': [1, 10, 50, 100,200,300, 1000]}
+gsSVMC = GridSearchCV(SVMC,param_grid = svc_param_grid, cv=kfold, scoring="accuracy", n_jobs= -1, verbose = 1)
+gsSVMC.fit(x_train,y_train)
+SVMC_best = gsSVMC.best_estimator_
+print('Support Vector Machine: '+ str(round(SVMC_best .score(x_train, y_train)*100,2))+ ' %')
 
-svc =SVC()
-svc.fit(x_train, y_train)
-y_pred = svc.predict(x_test)
-print('Support Vector Machine: '+ str(round(svc.score(x_train, y_train)*100,2))+ ' %')
+#extra tree classifier
+ExtC = ExtraTreesClassifier()
+## Search grid for optimal parameters
+ex_param_grid = {"max_depth": [None],
+              "max_features": [1, 3, 10],
+              "min_samples_split": [2, 3, 10],
+              "min_samples_leaf": [1, 3, 10],
+              "bootstrap": [False],
+              "n_estimators" :[100,300],
+              "criterion": ["gini"]}
+gsExtC = GridSearchCV(ExtC,param_grid = ex_param_grid, cv=kfold, scoring="accuracy", n_jobs= -1, verbose = 1)
+gsExtC.fit(x_train,y_train)
+ExtC_best = gsExtC.best_estimator_
+print('Extra trees classifier: '+ str(round(ExtC_best.score(x_train, y_train)*100,2))+ ' %')
 
-# KNN
 
-knn=KNeighborsClassifier(n_neighbors=2)
-knn.fit(x_train, y_train)
-y_pred=knn.predict(x_test)
-print('KNN: '+ str(round(knn.score(x_train, y_train)*100,2))+ ' %')
-
-# Naive Bayes
-
-gaussian=GaussianNB()
-gaussian.fit(x_train, y_train)
-y_pred=gaussian.predict(x_test)
-print('Naive Bayes: '+ str(round(gaussian.score(x_train, y_train)*100,2))+ ' %')
-
-#Perceptron
-
-perceptron = Perceptron()
-perceptron.fit(x_train, y_train)
-y_pred=perceptron.predict(x_test)
-print('Perceptron: '+ str(round(perceptron.score(x_train, y_train)*100,2))+ ' %')
-
-# linear support vector machines
-
-linear_svc = LinearSVC()
-linear_svc.fit(x_train, y_train)
-y_pred = linear_svc.predict(x_test)
-print('Linear Support Vector Machine: '+ str(round(linear_svc.score(x_train, y_train)*100,2))+ ' %')
-
-# Stochastic Gradient Descent
-
-sgd = SGDClassifier()
-sgd.fit(x_train, y_train)
-y_pred = sgd.predict(x_test)
-print('Stochastic Gradient Descent: '+ str(round(sgd.score(x_train, y_train)*100,2))+ ' %')
-
-# Regression tree
-
+# Regression tree with AdaBoost
 tree = DecisionTreeClassifier()
-tree.fit(x_train, y_train)
-y_pred = tree.predict(x_test)
-print('Decision tree: '+ str(round(tree.score(x_train, y_train)*100,2))+ ' %')
+adatree = AdaBoostClassifier(tree, random_state=7)
+ada_param_grid = {"base_estimator__criterion" : ["gini", "entropy"],
+              "base_estimator__splitter" :   ["best", "random"],
+              "algorithm" : ["SAMME","SAMME.R"],
+              "n_estimators" :[1,2],
+              "learning_rate":  [0.0001, 0.001, 0.01, 0.1, 0.2, 0.3,1.5]}
+gsadaDTC = GridSearchCV(adatree,param_grid = ada_param_grid, cv=kfold, scoring="accuracy", n_jobs= -1, verbose = 1)
+gsadaDTC.fit(x_train,y_train)
+adatree_best = gsadaDTC.best_estimator_
+print('Ada Boost Decision tree: '+ str(round(adatree_best.score(x_train, y_train)*100,2))+ ' %')
 
 
-# Random forest
-n_tree= (10,50,150,200)
-for n in n_tree:    
-    trees = RandomForestClassifier(n_estimators=n)
-    trees.fit(x_train, y_train)
-    y_pred = trees.predict(x_test)
-    print('Random forest with '+str(n)+' trees: '+ str(round(trees.score(x_train, y_train)*100,2))+ ' %')
+# RFC Parameters tunning 
+RFC = RandomForestClassifier()
+## Search grid for optimal parameters
+rf_param_grid = {"max_depth": [None],
+              "max_features": [1, 3, 10],
+              "min_samples_split": [2, 3, 10],
+              "min_samples_leaf": [1, 3, 10],
+              "bootstrap": [False],
+              "n_estimators" :[100,300],
+              "criterion": ["gini"]}
+gsRFC = GridSearchCV(RFC,param_grid = rf_param_grid, cv=kfold, scoring="accuracy", n_jobs= -1, verbose = 1)
+gsRFC.fit(x_train,y_train)
+RFC_best = gsRFC.best_estimator_
+print('Random Forest: '+ str(round(RFC_best.score(x_train, y_train)*100,2))+ ' %')
 
+# Gradient boosting
+GBC = GradientBoostingClassifier()
+gb_param_grid = {'loss' : ["deviance"],
+              'n_estimators' : [100,200,300],
+              'learning_rate': [0.1, 0.05, 0.01],
+              'max_depth': [4, 8],
+              'min_samples_leaf': [100,150],
+              'max_features': [0.3, 0.1] 
+              }
+gsGBC = GridSearchCV(GBC,param_grid = gb_param_grid, cv=kfold, scoring="accuracy", n_jobs= -1, verbose = 1)
+gsGBC.fit(x_train,y_train)
+GBC_best = gsGBC.best_estimator_
+print('Gradient boosting: '+ str(round(GBC_best.score(x_train, y_train)*100,2))+ ' %')
 
-#since Random forest looks to be the best I will save the results
+#combined the best ones all together
 
-submission =pd.DataFrame({"PassengerId": test_df["PassengerId"], "Survived": y_pred})
-submission.to_csv('submission_andrea.csv', index=False)
+voting_combined = VotingClassifier(estimators=[('rfc', RFC_best), ('extc', ExtC_best),
+('svc', SVMC_best), ('adac',adatree_best),('gbc',GBC_best)], voting='soft', n_jobs=-1)
 
-#since I have found that the random forest is the best now I want to tune it.
-#it looks like there are several parameters, so the best thing to do is to create a random grid with different combination of them
-
-n_estimators = [int(x) for x in np.linspace(start = 100, stop = 2000, num = 10)]
-# Number of features to consider at every split
-max_features = ['auto', 'sqrt']
-# Maximum number of levels in tree
-max_depth = [int(x) for x in np.linspace(10, 110, num = 11)]
-max_depth.append(None)
-# Minimum number of samples required to split a node
-min_samples_split = [2, 5, 10, 15]
-# Minimum number of samples required at each leaf node
-min_samples_leaf = [1, 2, 4, 6]
-# Method of selecting samples for training each tree
-bootstrap = [True, False]# Create the random grid
-random_grid = {'n_estimators': n_estimators,
-               'max_features': max_features,
-               'max_depth': max_depth,
-               'min_samples_split': min_samples_split,
-               'min_samples_leaf': min_samples_leaf,
-               'bootstrap': bootstrap}
-print(random_grid)
-
-
-trees = RandomForestClassifier()
-# Random search of parameters, using 5 fold cross validation, 
-# search across 100 different combinations and use all available cores
-trees_random = RandomizedSearchCV(estimator = trees, param_distributions = random_grid, n_iter = 100, cv = 5, verbose=5, random_state=42, n_jobs = -1)# Fit the random search model
-trees_random.fit(x_train, y_train)
-trees_random.best_params_
-#using only the best one
-y_pred = trees_random.best_estimator_.predict(x_test)
-print('Decision tree: '+ str(round(trees_random.best_estimator_.score(x_train, y_train)*100,2))+ ' %')
+voting_combined.fit(x_train, y_train)
+y_pred=voting_combined.predict(x_test)
+print('Combined: '+ str(round(voting_combined.score(x_train, y_train)*100,2))+ ' %')
 
 submission =pd.DataFrame({"PassengerId": test_df["PassengerId"], "Survived": y_pred})
 submission.to_csv('submission_andrea.csv', index=False)
+
+
+
+
+# # #logistic regression
+# logreg=LogisticRegression()
+# logreg.fit(x_train, y_train)
+# y_pred=logreg.predict(x_test)
+# print('Logistic regression: '+ str(round(logreg.score(x_train, y_train)*100,2))+ ' %')
+
+# # KNN
+# knn=KNeighborsClassifier(n_neighbors=2)
+# knn.fit(x_train, y_train)
+# y_pred=knn.predict(x_test)
+# print('KNN: '+ str(round(knn.score(x_train, y_train)*100,2))+ ' %')
+
+# # Naive Bayes
+# gaussian=GaussianNB()
+# gaussian.fit(x_train, y_train)
+# y_pred=gaussian.predict(x_test)
+# print('Naive Bayes: '+ str(round(gaussian.score(x_train, y_train)*100,2))+ ' %')
+
+# #Perceptron
+# perceptron = Perceptron()
+# perceptron.fit(x_train, y_train)
+# y_pred=perceptron.predict(x_test)
+# print('Perceptron: '+ str(round(perceptron.score(x_train, y_train)*100,2))+ ' %')
+
+
+# # Stochastic Gradient Descent
+# sgd = SGDClassifier()
+# sgd.fit(x_train, y_train)
+# y_pred = sgd.predict(x_test)
+# print('Stochastic Gradient Descent: '+ str(round(sgd.score(x_train, y_train)*100,2))+ ' %')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# #trying to make prediction with a neural network (two hidden layer, 12 and 8 with relu activation function and sigmoid for output)
+
+# model = Sequential()
+# model.add(Dense(12, activation='relu', kernel_initializer='random_normal'))
+# kernel_initializer='random_normal'
+# model.add(Dense(8, activation='relu', kernel_initializer='random_normal'))
+# kernel_initializer='random_normal'
+# model.add(Dense(1, activation='sigmoid', kernel_initializer='random_normal'))
+# model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+# # saving only the best one
+
+# save_best = ModelCheckpoint('best_model.hdf5', save_best_only=True, monitor='val_loss', mode='min')
+# #trainint of the NNET, 33 % of validation, 200 epochs, batch size of 10
+# model_trained = model.fit(x_train, y_train, validation_split=0.33, epochs=200, batch_size=10, callbacks=save_best)
+# plt.close('all')
+# plt.figure(1)
+# plt.subplot(1,2,1)
+# plt.plot(model_trained.history['accuracy'], label='Train', color='r')
+# plt.plot(model_trained.history['val_accuracy'], label='Validation',color='b')
+# plt.title('model_accuracy')
+# plt.xlabel('epoch')
+# plt.ylabel('accuracy (%)')
+# plt.legend()
+# plt.subplot(1,2,2)
+# plt.plot(model_trained.history['loss'],label='Train', color='r')
+# plt.plot(model_trained.history['val_loss'], label='Validation',color='b')
+# plt.title('model_loss')
+# plt.xlabel('epoch')
+# plt.ylabel('loss')
+# plt.legend()
+
+
+# _, accuracy = model.evaluate(x_train, y_train)
+# print('neural network: '+ str(round(accuracy*100,2))+ ' %')
+
+# y_pred = model.predict(x_test).reshape(-1)
+# predictions = np.zeros(y_pred.shape)
+# for i in range(y_pred.shape[0]):
+#      if y_pred[i,]>0.5:
+#         predictions[i,]=1
+#      else:
+#         predictions[i,]=0
+
+# submission =pd.DataFrame({"PassengerId": test_df["PassengerId"], "Survived": predictions.astype(int)})
+# submission.to_csv('submission_andrea.csv', index=False)
+
+
+# #trying to make prediction with a xgboost
+
+
+# xg = xgb.XGBRegressor(objective ='binary:logistic', learning_rate = 0.1,
+#                 max_depth = 5, alpha = 10, n_estimators = 100)
+
+# xg.fit(x_train,y_train)
+# y_pred = xg.predict(x_test)
+# print('XGBoost: '+ str(round(xg.score(x_train, y_train)*100,2))+ ' %')
+# y_pred =(y_pred>0.5)
+# print(confusion_matrix(y_test, y_pred))
+
